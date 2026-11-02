@@ -2,12 +2,12 @@
 
 Start with `npm run start`. The chat manages three core tables and one current prep plan:
 
-| Table                | Contents                                                                                                          |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `ingredients`        | UUID, name, shelf life in days from purchase, nutritional facts                                                   |
-| `inventory_items`    | Item UUID, ingredient UUID, quantity, original unit, purchase date and expiration                                 |
-| `recipes`            | UUID, name, base portions, instructions and a JSON mapping from ingredient UUIDs to quantity, unit and prep notes |
-| `app_settings`       | One `current_prep_plan` record containing recipe UUIDs, desired portions and cooking status                       |
+| Table             | Contents                                                                                                          |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `ingredients`     | UUID, name, shelf life in days from purchase, nutritional facts                                                   |
+| `inventory_items` | Item UUID, ingredient UUID, quantity, original unit, purchase date and expiration                                 |
+| `recipes`         | UUID, name, base portions, instructions and a JSON mapping from ingredient UUIDs to quantity, unit and prep notes |
+| `app_settings`    | One `current_prep_plan` record containing recipe UUIDs, desired portions and cooking status                       |
 
 Ingredient UUIDs identify foods; item UUIDs identify individual purchases. Repeated purchases remain separate items with their own dates. Names can change without breaking references. The assistant reuses the closest equivalent existing ingredient, asks when ambiguous, and creates an ingredient when no suitable match exists. There is no alias table or storage location.
 
