@@ -4,6 +4,8 @@ Hey there! :wave:
 I'm Mayank Daruka, this is an initial prototype of a meal-prep assistant I've built using Cloudflare Agents, Workers AI, React and Durable Object SQLite.
 I recently moved to Austin from Seattle, and I've started to get back into meal-prepping again. I found myself struggling to keep track of ingredients, inventory, and recipes, so I thought it would be a good opportunity to build a tool that helps me manage all of that efficiently.
 
+Note: AI was used to assist in building this assistant. My prompts to the AI involved providing detailed descriptions of the below features and continuously re-iterating over generated code to refine and improve the implementation.
+
 ## Application Features
 
 Here's a quick overview of the assistant's capabilities:
