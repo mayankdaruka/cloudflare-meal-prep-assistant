@@ -13,6 +13,7 @@ Here's a quick overview of the assistant's capabilities:
 - It stores exact recipes, this includes a mapping of each ingredient to the exact quantity needed and the way it should be prepared (ex. for garlic - does it need to be minced, sliced, or crushed)
 - It maintains a current meal prep plan with desired portions based on user input
 - It calculates the delta of required ingredients versus what is currently available in inventory, and makes a grocery list for missing items
+- Standardized set of measurement units and hardcoded conversions between them to reduce LLM-related ambiguity in recipe calculations
 
 # Usage
 
