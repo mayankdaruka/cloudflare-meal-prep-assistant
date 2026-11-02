@@ -1,6 +1,5 @@
 import { createWorkersAI } from "workers-ai-provider";
-import { callable, routeAgentRequest, type Schedule } from "agents";
-import { getSchedulePrompt, scheduleSchema } from "agents/schedule";
+import { routeAgentRequest } from "agents";
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import {
   convertToModelMessages,
@@ -10,55 +9,39 @@ import {
   tool
 } from "ai";
 import { z } from "zod";
+import { mealTools } from "./meal-prep";
+import { MealStore } from "./meal-store";
 
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
   chatRecovery = true;
-  // Wait for MCP connections to be re-established after hibernation before
-  // processing a message, so MCP tools aren't intermittently missing.
-  waitForMcpConnections = true;
+  private mealStore: MealStore;
 
-  onStart() {
-    // Configure OAuth popup behavior for MCP servers that require authentication
-    this.mcp.configureOAuthCallback({
-      customHandler: (result) => {
-        if (result.authSuccess) {
-          return new Response("<script>window.close();</script>", {
-            headers: { "content-type": "text/html" },
-            status: 200
-          });
-        }
-        return new Response(
-          `Authentication Failed: ${result.authError || "Unknown error"}`,
-          { headers: { "content-type": "text/plain" }, status: 400 }
-        );
-      }
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.mealStore = new MealStore({
+      query: (sql, ...values) =>
+        ctx.storage.sql
+          .exec<Record<string, string | number | null>>(sql, ...values)
+          .toArray(),
+      transaction: (callback) => ctx.storage.transactionSync(callback)
     });
   }
 
-  @callable()
-  async addServer(name: string, url: string) {
-    return await this.addMcpServer(name, url);
-  }
-
-  @callable()
-  async removeServer(serverId: string) {
-    await this.removeMcpServer(serverId);
-  }
-
   async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
-    const mcpTools = this.mcp.getAITools();
     const workersai = createWorkersAI({ binding: this.env.AI });
 
     const result = streamText({
-      model: workersai("@cf/moonshotai/kimi-k2.7-code", {
+      model: workersai("@cf/openai/gpt-oss-120b", {
+        reasoning_effort: "low",
         sessionAffinity: this.sessionAffinity
       }),
-      system: `You are a helpful assistant that can understand images. You can check the weather, get the user's timezone, run calculations, and schedule tasks. When users share images, describe what you see and answer questions about them.
+      maxOutputTokens: 4096,
+      system: `You are a meal-prep assistant. Help manage inventory, exact recipes, a current prep plan and grocery lists using the meal-prep tools. Saved tool data is the source of truth: read it before answering questions about existing records or changing records. Never claim a change was saved unless a tool succeeds.
+Preserve original ingredient measurements. Do not convert units or invent recipe quantities, dates, shelf lives or inventory. Reuse exact ingredient names and unit spellings from saved records. Ask about ambiguous ingredient forms (dry vs cooked), measurements, portions and dates. Save nutrition only when caloriesPerServing (kcal), servingSize and servingUnit are all known. If nutrition is incomplete, save the ingredient without nutrition and ask for the missing details. Never guess nutrition or clear existing complete nutrition unless the user explicitly asks. Store user-provided shelf life directly on the ingredient and reuse it automatically. Match ingredient names to the closest equivalent already saved; ask when ambiguous. Use UUIDs returned by tools, never invent IDs. There are no aliases or storage locations; never ask where an item is stored. Expiration estimates are estimates, not guarantees of food safety. Separate purchases into items. Changing a rule affects future items only.
+Use getUserTimezone when local dates matter; the current UTC timestamp is ${new Date().toISOString()}. Purchase dates default to today only when the user says they bought something today; ask when unknown. Explicit item expiration overrides default shelf life. Planning never deducts stock; confirm cooking with actual item use. Explain unit mismatches and unknown expiration dates on grocery lists. Do not silently substitute ingredients. You cannot view images; ask for a text description.
 
-${getSchedulePrompt({ date: new Date() })}
-
-If the user asks to schedule a task, use the schedule tool to schedule the task.`,
+Use setCurrentPrepPlan to remember recipes and desired portions without a calendar. Recipe edits immediately affect the current plan; explain meaningful changes.`,
       // Prune old tool calls and reasoning to save tokens on long conversations
       messages: pruneMessages({
         messages: await convertToModelMessages(this.messages),
@@ -66,141 +49,29 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
         reasoning: "before-last-message"
       }),
       tools: {
-        // MCP tools from connected servers
-        ...mcpTools,
-
-        // Server-side tool: runs automatically on the server
-        getWeather: tool({
-          description: "Get the current weather for a city",
-          inputSchema: z.object({
-            city: z.string().describe("City name")
-          }),
-          execute: async ({ city }) => {
-            // Replace with a real weather API in production
-            const conditions = ["sunny", "cloudy", "rainy", "snowy"];
-            const temp = Math.floor(Math.random() * 30) + 5;
-            return {
-              city,
-              temperature: temp,
-              condition:
-                conditions[Math.floor(Math.random() * conditions.length)],
-              unit: "celsius"
-            };
-          }
-        }),
+        ...mealTools(
+          () => this.mealStore.read(),
+          (data) => this.mealStore.write(data)
+        ),
 
         // Client-side tool: no execute function — the browser handles it
         getUserTimezone: tool({
           description:
             "Get the user's timezone from their browser. Use this when you need to know the user's local time.",
           inputSchema: z.object({})
-        }),
-
-        // Approval tool: requires user confirmation before executing
-        calculate: tool({
-          description:
-            "Perform a math calculation with two numbers. Requires user approval for large numbers.",
-          inputSchema: z.object({
-            a: z.number().describe("First number"),
-            b: z.number().describe("Second number"),
-            operator: z
-              .enum(["+", "-", "*", "/", "%"])
-              .describe("Arithmetic operator")
-          }),
-          needsApproval: async ({ a, b }) =>
-            Math.abs(a) > 1000 || Math.abs(b) > 1000,
-          execute: async ({ a, b, operator }) => {
-            const ops: Record<string, (x: number, y: number) => number> = {
-              "+": (x, y) => x + y,
-              "-": (x, y) => x - y,
-              "*": (x, y) => x * y,
-              "/": (x, y) => x / y,
-              "%": (x, y) => x % y
-            };
-            if (operator === "/" && b === 0) {
-              return { error: "Division by zero" };
-            }
-            return {
-              expression: `${a} ${operator} ${b}`,
-              result: ops[operator](a, b)
-            };
-          }
-        }),
-
-        scheduleTask: tool({
-          description:
-            "Schedule a task to be executed at a later time. Use this when the user asks to be reminded or wants something done later.",
-          inputSchema: scheduleSchema,
-          execute: async ({ when, description }) => {
-            if (when.type === "no-schedule") {
-              return "Not a valid schedule input";
-            }
-            const input =
-              when.type === "scheduled"
-                ? when.date
-                : when.type === "delayed"
-                  ? when.delayInSeconds
-                  : when.type === "cron"
-                    ? when.cron
-                    : null;
-            if (!input) return "Invalid schedule type";
-            try {
-              this.schedule(input, "executeTask", description, {
-                idempotent: true
-              });
-              return `Task scheduled: "${description}" (${when.type}: ${input})`;
-            } catch (error) {
-              return `Error scheduling task: ${error}`;
-            }
-          }
-        }),
-
-        getScheduledTasks: tool({
-          description: "List all tasks that have been scheduled",
-          inputSchema: z.object({}),
-          execute: async () => {
-            const tasks = this.getSchedules();
-            return tasks.length > 0 ? tasks : "No scheduled tasks found.";
-          }
-        }),
-
-        cancelScheduledTask: tool({
-          description: "Cancel a scheduled task by its ID",
-          inputSchema: z.object({
-            taskId: z.string().describe("The ID of the task to cancel")
-          }),
-          execute: async ({ taskId }) => {
-            try {
-              this.cancelSchedule(taskId);
-              return `Task ${taskId} cancelled.`;
-            } catch (error) {
-              return `Error cancelling task: ${error}`;
-            }
-          }
         })
       },
       stopWhen: stepCountIs(20),
+      onStepFinish: ({ finishReason, usage }) => {
+        console.info("Meal-prep generation step finished", {
+          finishReason,
+          outputTokens: usage.outputTokens
+        });
+      },
       abortSignal: options?.abortSignal
     });
 
-    return result.toUIMessageStreamResponse();
-  }
-
-  async executeTask(description: string, _task: Schedule<string>) {
-    // Do the actual work here (send email, call API, etc.)
-    console.log(`Executing scheduled task: ${description}`);
-
-    // Notify connected clients via a broadcast event.
-    // We use broadcast() instead of saveMessages() to avoid injecting
-    // into chat history — that would cause the AI to see the notification
-    // as new context and potentially loop.
-    this.broadcast(
-      JSON.stringify({
-        type: "scheduled-task",
-        description,
-        timestamp: new Date().toISOString()
-      })
-    );
+    return result.toUIMessageStreamResponse({ sendReasoning: false });
   }
 }
 
