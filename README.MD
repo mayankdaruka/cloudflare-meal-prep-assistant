@@ -1,10 +1,10 @@
-# Introduction
+## Introduction
 
 Hey there! :wave:
 I'm Mayank Daruka, this is an initial prototype of a meal-prep assistant I've built using Cloudflare Agents, Workers AI, React and Durable Object SQLite.
 I recently moved to Austin from Seattle, and I've started to get back into meal-prepping again. I found myself struggling to keep track of ingredients, inventory, and recipes, so I thought it would be a good opportunity to build a tool that helps me manage all of that efficiently.
 
-# Application Features
+## Application Features
 
 Here's a quick overview of the assistant's capabilities:
 
@@ -14,7 +14,7 @@ Here's a quick overview of the assistant's capabilities:
 - It maintains a current meal prep plan with desired portions based on user input
 - It calculates the delta of required ingredients versus what is currently available in inventory, and makes a grocery list for missing items
 
-# Usage
+## Usage
 
 1. Start a conversation with the meal-prep assistant.
 
@@ -36,7 +36,7 @@ Here's a quick overview of the assistant's capabilities:
 
    ![Generate a grocery list](docs/grocery-list.png)
 
-# What's next?
+## What's Next?
 
 There is plenty of room for improvement here:
 
@@ -47,7 +47,7 @@ There is plenty of room for improvement here:
 - Supporting additional health goals by tracking protein, fiber, etc.
 - Standardized set of measurement units and hardcoded conversions between them to reduce LLM-related ambiguity in recipe calculations
 
-## Run locally
+## Run Locally
 
 ```sh
 npm install
@@ -56,7 +56,7 @@ npm run start
 
 Workers AI runs remotely through your Cloudflare account, even during local development. The configured model is `@cf/openai/gpt-oss-120b` with low reasoning effort. It accepts text and supports tool calling.
 
-## Verify
+## Verify Locally
 
 ```sh
 npm run lint
@@ -66,7 +66,7 @@ node --experimental-strip-types --test src/meal-prep.test.ts src/meal-store.test
 
 The tests require Node with `node:sqlite` support. `npm run check` also checks repository-wide formatting.
 
-## Deploy
+## Deploy to Cloudflare
 
 ```sh
 npm run deploy
